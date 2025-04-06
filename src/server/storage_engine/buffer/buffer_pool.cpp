@@ -213,11 +213,28 @@ RC FileBufferPool::flush_page(Frame &frame)
  */
 RC FileBufferPool::flush_page_internal(Frame &frame)
 {
-//  1. 获取页面Page
-//  2. 计算该Page在文件中的偏移量
-//  3. 写入数据到文件的目标位置
-//  4. 清除frame的脏标记
-//  5. 记录和返回成功
+  //  1. 获取页面Page
+  Page &page = frame.page();
+  PageNum page_num = frame.page_num();
+  
+  // 2. 计算该Page在文件中的偏移量
+  int64_t offset = static_cast<int64_t>(page_num) * BP_PAGE_SIZE;
+  
+  // 3. 写入数据到文件的目标位置
+  if (lseek(file_desc_, offset, SEEK_SET) == -1) 
+  {
+    return RC::IOERR_SEEK;
+  }
+  
+  if (writen(file_desc_, &page, BP_PAGE_SIZE) != 0) 
+  {
+    return RC::IOERR_WRITE;
+  }
+  
+  // 4. 清除frame的脏标记
+  frame.clear_dirty();
+  
+  // 5. 记录和返回成功
   return RC::SUCCESS;
 }
 
@@ -242,18 +259,61 @@ RC FileBufferPool::flush_all_pages()
 }
 
 /**
- * TODO [Lab1] 需要同学们实现某个指定页面的驱逐
+ * TODO Lab1 驱逐单个指定页面的帧
  */
 RC FileBufferPool::evict_page(PageNum page_num, Frame *buf)
-{
+{ 
+  
+  if (buf->dirty()) 
+  {
+    RC rc = flush_page_internal(*buf);
+    if (rc != RC::SUCCESS) 
+    {
+      return rc;
+    }
+  }
+  
+  RC rc = frame_manager_.free(file_desc_, page_num, buf);
+  if (rc != RC::SUCCESS) 
+  {
+    return rc;
+  }
+  
   return RC::SUCCESS;
 }
+
 /**
- * TODO [Lab1] 需要同学们实现该文件所有页面的驱逐
+ * TODO Lab 1 驱逐该文件的所有页面帧
  */
 RC FileBufferPool::evict_all_pages()
 {
-  return RC::SUCCESS;
+  // 获取该文件的所有帧
+  std::list<Frame *> frames = frame_manager_.find_list(file_desc_);
+  RC rc = RC::SUCCESS;
+  
+  for (Frame *frame : frames) 
+  {
+    PageNum page_num = frame->page_num();
+    
+    if (frame->dirty()) 
+    {
+      RC flush_rc = flush_page_internal(*frame);
+      if (flush_rc != RC::SUCCESS) 
+      {
+        rc = flush_rc;
+      }
+    }
+    
+    frame->unpin();
+    
+    RC free_rc = frame_manager_.free(file_desc_, page_num, frame);
+    if (free_rc != RC::SUCCESS) 
+    {
+      rc = free_rc;
+    }
+  }
+  
+  return rc;
 }
 
 /**
@@ -517,7 +577,18 @@ RC BufferPoolManager::close_file(const char *_file_name)
  */
 RC BufferPoolManager::flush_page(Frame &frame)
 {
-  return RC::SUCCESS;
+  
+  std::scoped_lock lock_guard(lock_);
+  int fd = frame.file_desc();
+  
+  auto iter = fd_buffer_pools_.find(fd);
+  if (iter == fd_buffer_pools_.end()) 
+  {
+    return RC::NOTFOUND;
+  }
+  
+  FileBufferPool *bp = iter->second;
+  return bp->flush_page(frame);
 }
 
 static BufferPoolManager *default_bpm = nullptr;
