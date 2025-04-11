@@ -90,8 +90,24 @@ RC BplusTreeIndex::close()
  */
 RC BplusTreeIndex::insert_entry(const char *record, const RID *rid)
 {
-  // TODO [Lab2] 增加索引项的处理逻辑
-  return RC::SUCCESS;
+  if (!inited_) {
+    return RC::INVALID_ARGUMENT;
+  }
+
+  const int field_num = multi_field_metas_.size();
+  std::vector<const char *> multi_keys(field_num);
+
+  for (int i = 0; i < field_num; i++) {
+    const FieldMeta &field_meta = multi_field_metas_[i];
+    multi_keys[i] = record + field_meta.offset(); //提取起始地址
+  }
+
+  RC rc = index_handler_.insert_entry(multi_keys.data(), rid, field_num);
+  if (rc == RC::RECORD_DUPLICATE_KEY) {
+    return RC::RECORD_DUPLICATE_KEY;
+  }
+
+  return rc;
 }
 
 /**
@@ -100,8 +116,19 @@ RC BplusTreeIndex::insert_entry(const char *record, const RID *rid)
  */
 RC BplusTreeIndex::delete_entry(const char *record, const RID *rid)
 {
-  // TODO [Lab2] 增加索引项的处理逻辑
-  return RC::SUCCESS;
+  if (!inited_) {
+    return RC::INVALID_ARGUMENT;
+  }
+
+  const int field_num = multi_field_metas_.size();
+  std::vector<const char *> multi_keys(field_num);
+
+  for (int i = 0; i < field_num; i++) {
+    const FieldMeta &field_meta = multi_field_metas_[i];
+    multi_keys[i] = record + field_meta.offset();
+  }
+
+  return index_handler_.delete_entry(multi_keys.data(), rid, field_num);
 }
 
 IndexScanner *BplusTreeIndex::create_scanner(

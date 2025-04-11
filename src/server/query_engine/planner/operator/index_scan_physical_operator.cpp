@@ -46,16 +46,41 @@ RC IndexScanPhysicalOperator::open(Trx *trx)
 
 RC IndexScanPhysicalOperator::next()
 {
+  RC rc;
   RID rid;
-  record_page_handler_.cleanup();
 
-  // TODO [Lab2] 通过IndexScanner循环获取下一个RID，然后通过RecordHandler获取对应的Record
-  // 在现有的查询实现中，会在调用next()方法后通过current_tuple()获取当前的Tuple, 
-  // 从current_tuple()的实现中不难看出, 数据会通过current_record_传递到Tuple中并返回,
-  // 因此该next()方法的主要目的就是将recordHandler获取到的数据填充到current_record_中
-  // while(){}
+  while (true) {
+    rc = index_scanner_->next_entry(&rid, isdelete_);
+    if (rc == RC::RECORD_EOF) {
+      return RC::RECORD_EOF;
+    } else if (rc != RC::SUCCESS) {
+      LOG_WARN("Failed to fetch next RID from index scanner. rc=%s", strrc(rc));
+      return RC::INTERNAL;
+    }
 
-  return RC::SUCCESS;
+    rc = record_handler_->get_record(record_page_handler_, &rid, true, &current_record_);
+    if (rc != RC::SUCCESS) {
+      continue;
+    }
+
+
+    RowTuple tuple;
+    tuple.set_schema(table_, table_alias_, table_->table_meta().field_metas());
+    tuple._set_record(&current_record_);
+
+    bool passed = true;
+    rc = filter(tuple, passed);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("Failed to evaluate filter expression on tuple. rc=%s", strrc(rc));
+      return rc;
+    }
+
+    if (passed) {
+      return RC::SUCCESS;
+    }
+  }
+
+  return RC::RECORD_EOF;
 }
 
 RC IndexScanPhysicalOperator::close()

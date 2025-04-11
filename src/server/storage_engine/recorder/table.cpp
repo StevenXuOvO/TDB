@@ -373,19 +373,33 @@ RC Table::insert_record(Record &record)
     return rc;
   }
 
-  // TODO [Lab2] 增加索引的处理逻辑
-
-  return rc;
+  rc = insert_entry_of_indexes(record.data(), record.rid());
+  if (rc != RC::SUCCESS) 
+  {
+    record_handler_->delete_record(&record.rid());
+    LOG_WARN("Rollback record due to index insert failed. table name=%s", table_meta_.name());
+    return rc;
+  }
+  return RC::SUCCESS;
 }
 
 RC Table::delete_record(const Record &record)
 {
-  RC rc = RC::SUCCESS;
-
-  // TODO [Lab2] 增加索引的处理逻辑
+  RC rc = delete_entry_of_indexes(record.data(), record.rid(), false);
+  if (rc != RC::SUCCESS) 
+  {
+    LOG_WARN("Failed to delete index entry. table name=%s", table_meta_.name());
+    return rc;
+  }
 
   rc = record_handler_->delete_record(&record.rid());
-  return rc;
+  if (rc != RC::SUCCESS) 
+  {
+    LOG_ERROR("Failed to delete record. table name=%s", table_meta_.name());
+    return rc;
+  }
+
+  return RC::SUCCESS;
 }
 
 RC Table::visit_record(const RID &rid, bool readonly, std::function<void(Record &)> visitor)
